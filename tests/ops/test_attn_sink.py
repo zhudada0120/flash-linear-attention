@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from fla.ops.attn.decoding import attn_decoding_one_step
 from fla.ops.attn.naive import naive_attn_decoding, naive_parallel_attn
 from fla.ops.attn.parallel import parallel_attn
-from fla.utils import assert_close, device
+from fla.utils import IS_NPU, assert_close, device
 
 
 def _repeat_kv_for_gpt_oss(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -64,6 +64,11 @@ def _gpt_oss_eager_sink_reference(
     return output, attn_probs
 
 
+# fp64 reference-vs-reference parity checks: torch_npu matmul/bmm does not
+# support float64 (aclnnBatchMatMul fails with parameter error 161002), so the
+# eager references cannot run on Ascend NPUs. The Triton paths themselves are
+# covered by the float32/float16 tests below and pass on NPU.
+@pytest.mark.skipif(IS_NPU, reason='torch_npu matmul does not support float64')
 @pytest.mark.parametrize(
     "window_size",
     [
@@ -118,6 +123,7 @@ def test_attn_sink_ref_matches_gpt_oss_eager(window_size):
     assert_close("ds_ref_vs_gpt", sink_bias_ref.grad, sink_bias_gpt.grad, 1e-10, err_atol=1e-10)
 
 
+@pytest.mark.skipif(IS_NPU, reason='torch_npu matmul does not support float64')
 def test_attn_sink_empty_row_ref_matches_gpt_oss_eager():
     torch.manual_seed(778)
     dtype = torch.float64
